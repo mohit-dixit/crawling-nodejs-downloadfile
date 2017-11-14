@@ -1,0 +1,21 @@
+{
+  "name": "node-web-scrape",
+  "version": "0.0.1",
+  "description": "Scrape le web.",
+  "main": "server.js",
+  "author": "Scotch",
+  "dependencies": {
+    "async": "^2.6.0",
+    "asyncawait": "^1.0.6",
+    "cheerio": "latest",
+    "cheerio-tableparser": "^1.0.1",
+    "csvtojson": "^1.1.9",
+    "express": "latest",
+    "fs": "0.0.1-security",
+    "promise": "^8.0.1",
+    "promised-csv": "^1.0.1",
+    "request": "latest",
+    "request-promise": "^4.2.2",
+    "tabletojson": "^0.6.0"
+  }
+}
