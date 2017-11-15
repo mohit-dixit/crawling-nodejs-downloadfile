@@ -23,6 +23,7 @@ startScraping().then(result => {
 // getPageDetailsUsingUrnId('U00500BR1983PTC001885').then((data) => {debugger;});
 // getPageDetailsUsingUrnId('U00500BR1983PTC001893').then((data) => {debugger;});
 // getPageDetailsUsingUrnId('U00500BR1983PTC001894').then((data) => {debugger;});
+
 function getFilesFromFolder(){
     return new Promise((res, rej) => {
          fs.readdir('./downloaded_files/', (err, data) => {
@@ -65,50 +66,66 @@ async function getCSVRecordsFromFiles(){
 	})
 }
 
+let missingEntries = {};
+let finalStateJsonArray = [];
+
+async function getCompaniesRecordByState(records){
+	missingEntries = {};
+	for(state in records) {
+		console.log('Parsing.....', state);
+		let element = records[state];
+		let loopcounter = 0;
+			for(urnId of element) {
+					let finalJson = await getPageDetailsUsingUrnId( urnId );
+					//let stateTableSchema = createTableByStateName( stateName );
+					
+					let inc = {};
+					let mergedObject={};
+					if(finalJson) {
+						finalJson.forEach(function (tableData) {
+							mergedObject = Object.assign(inc, tableData);
+						});
+
+						console.log(state + '  --  ' + loopcounter);
+
+						if (inc) {
+							finalStateJsonArray.push({State: state, Json: mergedObject});
+
+							//console.log(finalStateJsonArray);
+							// sequelize.sync()
+							//     .then(() => stateTableSchema.create( inc ) );
+						}
+					}
+					else {
+						console.log('Not worked for : ', urnId);
+						missingEntries[state] = missingEntries[state] || [];
+						missingEntries[state].push(urnId);
+					}
+					//console.log('DB Entry Done');
+					//DB Entry
+					loopcounter++;
+		}
+	}
+
+	checkAndRunMissingEntries();	
+}
+
 async function startScraping() {	
 	let files = [];
 
 	//read from the file & store it.
 	let output = await getCSVRecordsFromFiles();
-	let finalStateJsonArray = [];
-	for(state in output){
-	console.log('Parsing.....', state);
-	//if(state === 'Tripura')
-	//{
-		let element = output[state];
-		let loopcounter = 0;
-			for(urnId of element) {
-					let finalJson = await getPageDetailsUsingUrnId( urnId );
+	getCompaniesRecordByState(output);
+}
 
-					//let stateTableSchema = createTableByStateName( stateName );
-					let inc = {};
-
-					let mergedObject={};
-					finalJson.forEach( function( tableData ){
-						mergedObject = Object.assign( inc, tableData );
-					});
-
-					console.log(state + '  --  ' +loopcounter);
-
-					if( inc ){
-						finalStateJsonArray.push({State: state, Json : mergedObject});
-
-						//console.log(finalStateJsonArray);
-						// sequelize.sync()
-						//     .then(() => stateTableSchema.create( inc ) );
-					}
-
-					//console.log('DB Entry Done');
-					//DB Entry
-					loopcounter++;
-		}		
-	//}
+function checkAndRunMissingEntries(){
+	if (Object.keys(missingEntries).length > 0){
+		getCompaniesRecordByState(missingEntries);
+	}
 }
 
 console.log('FINAL....     ', finalStateJsonArray )
 //make entry of final json in DB
-
-};
 
 
 async function crawling(file) {
@@ -252,8 +269,8 @@ function getCSVRecords(file){
 		});
 }
 
-app.listen('8084')
+app.listen('8082')
 
-console.log('Magic happens on port 8081');
+console.log('Magic happens on port 8082');
 
 exports = module.exports = app;
