@@ -1,12 +1,19 @@
-var express = require('express'),
-fs = require('fs'),
-request = require('request'),
-cheerio = require('cheerio'),
-app = express(),
-csv = require('csvtojson'),
-rp = require('request-promise'),
-parse = require('csv-parse'),
-constants = require('./constants.js')
+let express 	= require('express'),
+	fs			= require('fs'),
+	request 	= require('request'),
+	cheerio 	= require('cheerio'),
+	app 		= express(),
+	csv 		= require('csvtojson'),
+	rp 			= require('request-promise'),
+	parse 		= require('csv-parse'),
+	constants 	= require('./constants.js'),
+    Sequelize 	= require('sequelize');
+
+const sequelize = new Sequelize('webcrawler', 'root', 'admin', {
+    host: 'localhost',
+    dialect: 'mysql',
+    operatorsAliases: false
+});
 
 let BASE_URL = constants.BASE_URL;
 let DownloadedFilesPath = constants.DownloadedFilesPath;
@@ -121,10 +128,16 @@ async function startScraping() {
 function checkAndRunMissingEntries(){
 	if (Object.keys(missingEntries).length > 0){
 		getCompaniesRecordByState(missingEntries);
+	} else {
+        finalStateJsonArray.forEach(( jsonData ) => {
+            let stateTableSchema = createTableByStateName( jsonData.State );
+            sequelize.sync()
+                .then(() => stateTableSchema.create( jsonData.Json ) );
+        });
 	}
 }
 
-console.log('FINAL....     ', finalStateJsonArray )
+
 //make entry of final json in DB
 
 
@@ -267,6 +280,33 @@ function getCSVRecords(file){
 					resolve(arr);
 				});
 		});
+}
+
+function createTableByStateName( stateName ){
+    const stateTableName = sequelize.define(stateName, {
+        cin 								: { type: Sequelize.STRING(1234) , unique: true },
+        company_name						: Sequelize.STRING(1234),
+        company_status						: Sequelize.STRING(1234),
+        roc									: Sequelize.STRING(1234),
+        registration_number					: Sequelize.STRING(1234),
+        company_category					: Sequelize.STRING(1234),
+        company_sub_category				: Sequelize.STRING(1234),
+        class_of_company					: Sequelize.STRING(1234),
+        date_of_incorporation				: Sequelize.STRING(1234),
+        age_of_company						: Sequelize.STRING(1234),
+        activity							: Sequelize.STRING(1234),
+        number_of_members					: Sequelize.STRING(1234),
+        authorised_capital					: Sequelize.STRING(1234),
+        paid_up_capital						: Sequelize.STRING(1234),
+        number_of_employees					: Sequelize.STRING(1234),
+        listing_status						: Sequelize.STRING(1234),
+        date_of_last_annual_general_meeting	: Sequelize.STRING(1234),
+        date_of_latest_balance_sheet		: Sequelize.STRING(1234),
+        _email_id							: Sequelize.STRING(1234),
+        address								: Sequelize.STRING(1234),
+        directors							: Sequelize.STRING(1234)
+    });
+    return stateTableName;
 }
 
 app.listen('8082')
