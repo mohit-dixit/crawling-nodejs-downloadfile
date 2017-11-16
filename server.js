@@ -1,290 +1,312 @@
+//================== Load modules start ====================================
 let express 	= require('express'),
-	fs			= require('fs'),
-	request 	= require('request'),
-	cheerio 	= require('cheerio'),
-	app 		= express(),
-	csv 		= require('csvtojson'),
-	rp 			= require('request-promise'),
-	parse 		= require('csv-parse'),
-	constants 	= require('./constants.js'),
-    Sequelize 	= require('sequelize');
+    fs			= require('fs'),
+    request 	= require('request'),
+    cheerio 	= require('cheerio'),
+    csv 		= require('csvtojson'),
+    rp 			= require('request-promise'),
+    parse 		= require('csv-parse'),
+    constants 	= require('./constants.js')
+Sequelize 	= require('sequelize');
 
+let app 		= express();
+//================== Load modules end =======================================
+
+//================== Load internal modules start ============================
+// DB Configuration
 const sequelize = new Sequelize('webcrawler', 'root', 'admin', {
     host: 'localhost',
     dialect: 'mysql',
-    operatorsAliases: false
+    operatorsAliases: false,
+    pool: {
+        max: 1,
+        min: 0,
+        acquire: 20000,
+        idle: 20000
+    },
+    dialectOptions: {
+        requestTimeout: 5000
+    },
 });
-
+// Defining objects/Variables
 let BASE_URL = constants.BASE_URL;
 let DownloadedFilesPath = constants.DownloadedFilesPath;
+let missingEntries = {};
+let finalStateJsonArray = [];
+let databaseMissingEntriesArray = [];
+//================== Load internal modules end ===============================
 
-console.time('TIME-TO-SCRAPE');
-
+//================== Main Function Start =====================================
 startScraping().then(result => {
-	console.log('COMPLETED!!!!!');
-	console.timeEnd('TIME-TO-SCRAPE');
-})
+    console.log('COMPLETED!!!!!');
+});
+//================= Main Function End ========================================
 
-// getPageDetailsUsingUrnId('U00303BR1990PTC003708').then((data) => {debugger;});
-// getPageDetailsUsingUrnId('U00500BR1983PTC001875').then((data) => {debugger;});
-// getPageDetailsUsingUrnId('U00500BR1983PTC001885').then((data) => {debugger;});
-// getPageDetailsUsingUrnId('U00500BR1983PTC001893').then((data) => {debugger;});
-// getPageDetailsUsingUrnId('U00500BR1983PTC001894').then((data) => {debugger;});
+//================= Helper Functions Start====================================
 
-function getFilesFromFolder(){
+async function startScraping() {
+    let files = [];
+
+    //read from the CSV file & store it.
+    let output = await getCSVRecordsFromFiles();
+    getCompaniesRecordByState(output);
+}
+
+function getFilesFromFolder( path ){
+    //Getting all files in specified folder
     return new Promise((res, rej) => {
-         fs.readdir('./downloaded_files/', (err, data) => {
-         	return res(data);
-		 });
+        fs.readdir(path, (err, data) => {
+            return res(data);
+        });
     });
 }
 
 function readFileCSV(fileName){
-	return new Promise((resolve, rej) => {
-		let arr = [];
-		let filePath = './downloaded_files/' + fileName;
-		
-		fs.readFile(filePath, (err, fileData) => {
-			let output = [];
-			parse(fileData, {}, (err, rows) => {
-				delete rows[0];
-				console.log('Testttttt')
-				rows.forEach((row) => {
-					output.push(row[0]);
-				});
-				return resolve(output);
-			})
-		})
-	 })
+
+    // Reading CSV file and return it in form of Array
+    return new Promise((resolve, rej) => {
+        let arr = [];
+        let filePath = './downloaded_files/' + fileName;
+
+        fs.readFile(filePath, (err, fileData) => {
+            let output = [];
+            parse(fileData, {}, (err, rows) => {
+                delete rows[0];
+                rows.forEach((row) => {
+                    output.push(row[0]);
+                });
+                return resolve(output);
+            })
+        })
+    })
 }
 
 async function getCSVRecordsFromFiles(){
-	let output = {};
-	return new Promise(async (resolve, rej) => {
+    let output = {};
+    return new Promise(async (resolve, rej) => {
 
-		let filesList = await getFilesFromFolder();
-		let stateOuput = {};
-		for(let fileName of filesList) {
-			let stateName = fileName.split('_').reverse()[0].replace('.csv','');
-			let result = await readFileCSV(fileName);
-			stateOuput[stateName] = result;
-		}
-		resolve(stateOuput);
-	})
+        //Getting all files in specified folder
+        let filesList = await getFilesFromFolder('./downloaded_files/');
+        let stateOutput = {};
+
+        //Iterate through all files and putting data in Object.
+        for(let fileName of filesList) {
+            let stateName = fileName.split('_').reverse()[0].replace('.csv','');
+            console.log('Getting data for ' + stateName);
+
+            //Creating Json file to store the parsed data
+            let jsonFile = fs.openSync('./json_files/' + stateName + '.json', 'w');
+
+            let result = await readFileCSV(fileName);
+            stateOutput[stateName] = result;
+        }
+        resolve(stateOutput);
+    })
 }
-
-let missingEntries = {};
-let finalStateJsonArray = [];
 
 async function getCompaniesRecordByState(records){
-	missingEntries = {};
-	for(state in records) {
-		console.log('Parsing.....', state);
-		let element = records[state];
-		let loopcounter = 0;
-			for(urnId of element) {
-					let finalJson = await getPageDetailsUsingUrnId( urnId );
-					//let stateTableSchema = createTableByStateName( stateName );
-					
-					let inc = {};
-					let mergedObject={};
-					if(finalJson) {
-						finalJson.forEach(function (tableData) {
-							mergedObject = Object.assign(inc, tableData);
-						});
+    let jsonFileArray = [];
+    missingEntries = {};
+    for(state in records) {
+        jsonFileArray = [];
+        console.log('Parsing.....', state);
+        let element = records[state];
+        let loopcounter = 0;
+        for(urnId of element) {
+            //Passing the URN to get the final output
+            let finalJson = await getPageDetailsUsingUrnId( urnId );
+            let inc = {};
+            let mergedObject={};
+            if(finalJson) {
+                finalJson.forEach(function (tableData) {
+                    mergedObject = Object.assign(inc, tableData);
+                });
+                console.log(state + '  --  ' + loopcounter);
+                if (inc) {
+                    finalStateJsonArray.push({State: state, Json: mergedObject});
+                    jsonFileArray.push( mergedObject );
+                }
+            }
+            else {
+                //console.log('Not worked for : ', urnId);
+                //Pushing the URNID of company for which the data has not came. Need to retry it.
+                missingEntries[state] = missingEntries[state] || [];
+                missingEntries[state].push(urnId);
+            }
+            loopcounter++;
 
-						console.log(state + '  --  ' + loopcounter);
+        }
+//Appending data to json file. Will iterate through it to insert data into database.
+        fs.appendFile('./json_files/' + state + '.json', (JSON.stringify( jsonFileArray )));
 
-						if (inc) {
-							finalStateJsonArray.push({State: state, Json: mergedObject});
+    }
 
-							//console.log(finalStateJsonArray);
-							// sequelize.sync()
-							//     .then(() => stateTableSchema.create( inc ) );
-						}
-					}
-					else {
-						console.log('Not worked for : ', urnId);
-						missingEntries[state] = missingEntries[state] || [];
-						missingEntries[state].push(urnId);
-					}
-					//console.log('DB Entry Done');
-					//DB Entry
-					loopcounter++;
-		}
-	}
-
-	checkAndRunMissingEntries();	
+    checkAndRunMissingEntries();
 }
 
-async function startScraping() {	
-	let files = [];
+async function checkAndRunMissingEntries(){
 
-	//read from the file & store it.
-	let output = await getCSVRecordsFromFiles();
-	getCompaniesRecordByState(output);
+    // Checking the missing entries (if any) and re-attempt
+    if (Object.keys(missingEntries).length > 0){
+        getCompaniesRecordByState( missingEntries );
+    } else {
+        //ready to insert into db.
+        let filesList = await getFilesFromFolder('./json_files/');
+
+        for(let stateName of filesList) {
+            let finalStateArray = [];
+            let filePath = './json_files/' + stateName;
+            let contents = fs.readFileSync(filePath);
+            let fileData = JSON.parse(contents);
+            fileData.forEach( data => {
+                finalStateArray.push(data);
+            });
+            let actualStateName = stateName.substring(0,stateName.length - 5);
+            await insertDataInDB( finalStateArray, actualStateName );
+        }
+    }
 }
 
-function checkAndRunMissingEntries(){
-	if (Object.keys(missingEntries).length > 0){
-		getCompaniesRecordByState(missingEntries);
-	} else {
-        finalStateJsonArray.forEach(( jsonData ) => {
-            let stateTableSchema = createTableByStateName( jsonData.State );
-            sequelize.sync()
-                .then(() => stateTableSchema.create( jsonData.Json ) );
+async function insertDataInDB( json, stateName ){
+    // Inserting data in database
+    for(let data of json){
+        let stateTableSchema = createTableByStateName( stateName );
+        let response = await insertTableDataInDB( stateTableSchema, data );
+    }
+}
+
+async function insertTableDataInDB( stateTableSchema, jsonArray ){
+    return sequelize.sync()
+        .then(() =>
+            stateTableSchema.create( jsonArray )
+        ).catch(err => {
+            return err;
         });
-	}
 }
 
+function getPageDetailsUsingUrnId(urnId) {
 
-//make entry of final json in DB
+    // Getting the final page to get the data
+    //console.log('URN-ID:', urnId);
+    let url = 'https://www.zaubacorp.com/company/-/'+ urnId;
+    let options = {
+        uri: url,
+        transform: function (html) {
+            return cheerio.load(html);
+        }
+    };
 
-
-async function crawling(file) {
-	console.log('1');
-	let output = {};
-	if (file){
-		let csvRecords = await getCSVRecords(file);
-		output[csvRecords.stateName] = csvRecords;
-		return output;
-	}
-}
-
-function getPageDetailsUsingUrnId(urnId)
-{
-	console.log('URN-ID:', urnId);
-		let url = 'https://www.zaubacorp.com/company/-/'+ urnId;
-		let options = {
-			uri: url,
-			transform: function (html) {
-				return cheerio.load(html);
-			}
-		};	
-
-		return rp(options).then(function ($) {
-			let tableDataArray = [],
-				data;
-			$('.company-data.uppercase').filter(function( item, index ) {
-				let tableName = $(this).text().replace(/\s+/g, '_').toLowerCase();
-
-				switch ( tableName ){
-					case 'company_details':
-						data = $(this).next().html();
-						tableDataArray.push( jsonArray( data, $ ) );
-						break;
-					case 'share_capital_&_number_of_employees':
-						data = $(this).next().html();
-						tableDataArray.push( jsonArray( data, $ ) );
-						break;
-					case '_listing_and_annual_compliance_details':
-						data = $(this).next().html();
-						tableDataArray.push( jsonArray( data, $ ) );
-						break;
-					case 'contact_details':
-						data = $(this).next().html();
-						tableDataArray.push( getJsonFromDiv( data, $ ) );
-						break;
-					case '_director_details':
-						data = $(this).next().html();
-						tableDataArray.push( getDirectorDetails( data, $ ) );
-						break;
-					default:
-						//console.log( 'No matching table found.')
-						break;
-				}
-			});
-			return tableDataArray;
-		})
-			.catch(function (err) {
-				//console.log(err);
-			});
+    return rp(options).then(function ($) {
+        let tableDataArray = [],
+            data;
+        $('.company-data.uppercase').filter(function( item, index ) {
+            let tableName = $(this).text().replace(/\s+/g, '_').toLowerCase();
+            // Getting the Json data from different tables/divs with in the web page
+            switch ( tableName ){
+                case 'company_details':
+                    data = $(this).next().html();
+                    tableDataArray.push( getJsonFromTable( data, $ ) );
+                    break;
+                case 'share_capital_&_number_of_employees':
+                    data = $(this).next().html();
+                    tableDataArray.push( getJsonFromTable( data, $ ) );
+                    break;
+                case '_listing_and_annual_compliance_details':
+                    data = $(this).next().html();
+                    tableDataArray.push( getJsonFromTable( data, $ ) );
+                    break;
+                case 'contact_details':
+                    data = $(this).next().html();
+                    tableDataArray.push( getJsonFromDiv( data, $ ) );
+                    break;
+                case '_director_details':
+                    data = $(this).next().html();
+                    tableDataArray.push( getDirectorDetails( data, $ ) );
+                    break;
+                default:
+                    break;
+            }
+        });
+        return tableDataArray;
+    })
+        .catch(function (err) {
+            console.log(err);
+        });
 }
 
 function getDirectorDetails( data, $ ){
-		let object = {},
-		directorNames = '';
 
-			$( data ).children("tbody tr").map(function() {
-				x = $(this).children();
-				x.each(function( inc ) {
-					if ( inc === 1 && $(this).text() !== undefined ){
-						//console.log(  $(this).text().trim() );
-						directorNames += $(this).text().trim() +',';
-					}
-					inc++;
-				});
-			});
+    // Getting Director details from web page
+    let object = {},
+        directorNames = '';
 
-		object['directors'] = directorNames.substring( 0, directorNames.length -1 );
-		return object;
+    $( data ).children("tbody tr").map(function() {
+        x = $(this).children();
+        x.each(function( inc ) {
+            if ( inc === 1 && $(this).text() !== undefined ){
+                directorNames += $(this).text().trim() +',';
+            }
+            inc++;
+        });
+    });
+
+    object['directors'] = directorNames.substring( 0, directorNames.length -1 );
+    return object;
 }
 
-function jsonArray( data, $ ){
-		let object = {};
-		$( data ).children("tr").map(function() {
-			let itArr = [];
-			x = $(this).children();
-			x.each(function( inc ) {
-				if( $(this).text() ){
-					let tableValue = $(this).text().replace(/\s+/g, '_').toLowerCase();
-					if ( inc === 0 ) {
-						itArr.push( tableValue );
-					} else {
-						itArr.push( $(this).text().replace("₹", "") );
-					}
-				}
-				inc++;
-			});
-			object[ itArr[0] ]  =  itArr[1]
-		}).get();
-		return object;
+function getJsonFromTable( data, $ ){
+
+    // Getting data from web page given in form of table
+    let object = {};
+    $( data ).children("tr").map(function() {
+        let itArr = [];
+        x = $(this).children();
+        x.each(function( inc ) {
+            if( $(this).text() ){
+                let tableValue = $(this).text().replace(/\s+/g, '_').toLowerCase();
+                if ( inc === 0 ) {
+                    itArr.push( tableValue );
+                } else {
+                    itArr.push( $(this).text().replace("₹", "") );
+                }
+            }
+            inc++;
+        });
+        object[ itArr[0] ]  =  itArr[1]
+    }).get();
+    return object;
 }
 
 function getJsonFromDiv( data, $ ){
-		let object = {};
-		$( data ).map(function() {
-			x = $(this).children();
-			x.each(function( inc ) {
-				let contactDetailDataArray = $(this).text().split(':');
-				if( inc === 0 || inc === 1 ){
-					if( contactDetailDataArray[1] !== undefined ){
-						let key = contactDetailDataArray[0].replace(/\s+/g, '_').toLowerCase();
-						object[key] = contactDetailDataArray[1]
-					}
-				} else if( inc === 3 ){
-					object['address'] = contactDetailDataArray[0]
-				} else {
-					//console.log('No data found.')
-				}
-				inc++;
-			});
-		});
-		return object;
-}
 
-function getCSVRecords(file){
-		return new Promise(function(resolve, reject) {
-			let arr = [];
-			csv().fromStream(
-				file // Request
-			).on( 'csv' , (jsonObjRow) => {
-				let value = {
-					urnId 		: jsonObjRow[0],
-					companyName : jsonObjRow[2],
-					stateName	: jsonObjRow[8]
-				};
-				arr.push(value);
-			})
-				.on('end', function() {
-					resolve(arr);
-				});
-		});
+    // Getting data from web page given in form of div
+    let object = {};
+    $( data ).map(function() {
+        x = $(this).children();
+        x.each(function( inc ) {
+            let contactDetailDataArray = $(this).text().split(':');
+            if( inc === 0 || inc === 1 ){
+                if( contactDetailDataArray[1] !== undefined ){
+                    let key = contactDetailDataArray[0].replace(/\s+/g, '_').toLowerCase();
+                    object[key] = contactDetailDataArray[1]
+                }
+            } else if( inc === 3 ){
+                object['address'] = contactDetailDataArray[0]
+            } else {
+                //console.log('No data found.')
+            }
+            inc++;
+        });
+    });
+    return object;
 }
 
 function createTableByStateName( stateName ){
+
+    // Defining the schema of table
     const stateTableName = sequelize.define(stateName, {
         cin 								: { type: Sequelize.STRING(1234) , unique: true },
+        //cin 								: Sequelize.STRING(1234),
         company_name						: Sequelize.STRING(1234),
         company_status						: Sequelize.STRING(1234),
         roc									: Sequelize.STRING(1234),
@@ -309,7 +331,9 @@ function createTableByStateName( stateName ){
     return stateTableName;
 }
 
-app.listen('8082')
+//================= Helper Functions End======================================
+
+app.listen('8082');
 
 console.log('Magic happens on port 8082');
 
