@@ -172,11 +172,11 @@ function getPageDetailsUsingUrnId(urnId) {
                     break;
                 case constants.KEYWORDS.SHARE_CAPITAL:
                     data = $(this).next().html();
-                    tableDataArray.push( getJsonFromTable( data, $ ) );
+                    tableDataArray.push( getJsonFromDiv( data, $ ) );
                     break;
                 case constants.KEYWORDS.ANNUAL_COMPLIANCE_DETAILS:
                     data = $(this).next().html();
-                    tableDataArray.push( getJsonFromTable( data, $ ) );
+                    tableDataArray.push( getJsonFromDiv( data, $ ) );
                     break;
                 case constants.KEYWORDS.CONTACT_DETAILS:
                     data = $(this).next().html();
@@ -218,13 +218,12 @@ function getDirectorDetails( data, $ ){
 }
 
 function getJsonFromTable( data, $ ){
-
     // Getting data from web page given in form of table
     let object = {};
-    $( data ).children("tr").map(() => {
+    $( data ).children("tr").map(function(){
         let itArr = [];
-        x = $(this).children();
-        x.each(( inc ) => {
+        x = $( this ).children();
+        x.each(function( inc ){
             if( $(this).text() ){
                 let tableValue = $(this).text().replace(/\s+/g, '_').toLowerCase();
                 if ( inc === 0 ) {
@@ -244,7 +243,7 @@ function getJsonFromDiv( data, $ ){
 
     // Getting data from web page given in form of div
     let object = {};
-    $( data ).map(() => {
+    $( data ).map(function(){
         x = $(this).children();
         x.each(function( inc ) {
             let contactDetailDataArray = $(this).text().split(':');
