@@ -109,7 +109,6 @@ async function checkAndRunMissingEntries(){
             let filePath = constants.JSON_FILES_BASE_PATH + stateName;
             let contents = fs.readFileSync(filePath);
             let fileData = JSON.parse(contents);
-
             fileData.forEach( data => {
                 finalStateArray.push(data);
             });
