@@ -7,34 +7,14 @@ let express 	= require('express'),
     rp 			= require('request-promise'),
     parse 		= require('csv-parse'),
     constants 	= require('./constants.js')
-Sequelize 	= require('sequelize');
+    db          = require('./dao.js'),
+    app 		= express();
 
-let app 		= express();
-//================== Load modules end =======================================
-
-//================== Load internal modules start ============================
 // DB Configuration
-const sequelize = new Sequelize('webcrawler', 'root', 'admin', {
-    host: 'localhost',
-    dialect: 'mysql',
-    operatorsAliases: false,
-    pool: {
-        max: 1,
-        min: 0,
-        acquire: 20000,
-        idle: 20000
-    },
-    dialectOptions: {
-        requestTimeout: 5000
-    },
-});
-// Defining objects/Variables
-let BASE_URL = constants.BASE_URL;
-let DownloadedFilesPath = constants.DownloadedFilesPath;
+db.init();
+
 let missingEntries = {};
 let finalStateJsonArray = [];
-let databaseMissingEntriesArray = [];
-//================== Load internal modules end ===============================
 
 //================== Main Function Start =====================================
 startScraping().then(result => {
@@ -52,41 +32,12 @@ async function startScraping() {
     getCompaniesRecordByState(output);
 }
 
-function getFilesFromFolder( path ){
-    //Getting all files in specified folder
-    return new Promise((res, rej) => {
-        fs.readdir(path, (err, data) => {
-            return res(data);
-        });
-    });
-}
-
-function readFileCSV(fileName){
-
-    // Reading CSV file and return it in form of Array
-    return new Promise((resolve, rej) => {
-        let arr = [];
-        let filePath = './downloaded_files/' + fileName;
-
-        fs.readFile(filePath, (err, fileData) => {
-            let output = [];
-            parse(fileData, {}, (err, rows) => {
-                delete rows[0];
-                rows.forEach((row) => {
-                    output.push(row[0]);
-                });
-                return resolve(output);
-            })
-        })
-    })
-}
-
 async function getCSVRecordsFromFiles(){
     let output = {};
     return new Promise(async (resolve, rej) => {
 
         //Getting all files in specified folder
-        let filesList = await getFilesFromFolder('./downloaded_files/');
+        let filesList = await getFilesFromFolder(constants.FILES_BASE_PATH);
         let stateOutput = {};
 
         //Iterate through all files and putting data in Object.
@@ -95,7 +46,7 @@ async function getCSVRecordsFromFiles(){
             console.log('Getting data for ' + stateName);
 
             //Creating Json file to store the parsed data
-            let jsonFile = fs.openSync('./json_files/' + stateName + '.json', 'w');
+            let jsonFile = fs.openSync(constants.JSON_FILES_BASE_PATH + stateName + '.json', 'w');
 
             let result = await readFileCSV(fileName);
             stateOutput[stateName] = result;
@@ -107,6 +58,7 @@ async function getCSVRecordsFromFiles(){
 async function getCompaniesRecordByState(records){
     let jsonFileArray = [];
     missingEntries = {};
+
     for(state in records) {
         jsonFileArray = [];
         console.log('Parsing.....', state);
@@ -134,11 +86,10 @@ async function getCompaniesRecordByState(records){
                 missingEntries[state].push(urnId);
             }
             loopcounter++;
-
         }
-//Appending data to json file. Will iterate through it to insert data into database.
-        fs.appendFile('./json_files/' + state + '.json', (JSON.stringify( jsonFileArray )));
 
+        //Appending data to json file. Will iterate through it to insert data into database.
+        fs.appendFile(constants.JSON_FILES_BASE_PATH + state + '.json', (JSON.stringify( jsonFileArray )));
     }
 
     checkAndRunMissingEntries();
@@ -150,45 +101,58 @@ async function checkAndRunMissingEntries(){
     if (Object.keys(missingEntries).length > 0){
         getCompaniesRecordByState( missingEntries );
     } else {
-        //ready to insert into db.
-        let filesList = await getFilesFromFolder('./json_files/');
+        //ready to insert into database
+        let filesList = await getFilesFromFolder(constants.JSON_FILES_BASE_PATH);
 
         for(let stateName of filesList) {
             let finalStateArray = [];
-            let filePath = './json_files/' + stateName;
+            let filePath = constants.JSON_FILES_BASE_PATH + stateName;
             let contents = fs.readFileSync(filePath);
             let fileData = JSON.parse(contents);
+
             fileData.forEach( data => {
                 finalStateArray.push(data);
             });
             let actualStateName = stateName.substring(0,stateName.length - 5);
-            await insertDataInDB( finalStateArray, actualStateName );
+            db.insert(finalStateArray, actualStateName);
         }
     }
 }
 
-async function insertDataInDB( json, stateName ){
-    // Inserting data in database
-    for(let data of json){
-        let stateTableSchema = createTableByStateName( stateName );
-        let response = await insertTableDataInDB( stateTableSchema, data );
-    }
+function getFilesFromFolder( path ){
+    //Getting all files in specified folder
+    return new Promise((res, rej) => {
+        fs.readdir(path, (err, data) => {
+            return res(data);
+        });
+    });
 }
 
-async function insertTableDataInDB( stateTableSchema, jsonArray ){
-    return sequelize.sync()
-        .then(() =>
-            stateTableSchema.create( jsonArray )
-        ).catch(err => {
-            return err;
-        });
+function readFileCSV(fileName){
+
+    // Reading CSV file and return it in form of Array
+    return new Promise((resolve, rej) => {
+        let arr = [];
+        let filePath = constants.FILES_BASE_PATH + fileName;
+
+        fs.readFile(filePath, (err, fileData) => {
+            let output = [];
+            parse(fileData, {}, (err, rows) => {
+                delete rows[0];
+                rows.forEach((row) => {
+                    output.push(row[0]);
+                });
+                return resolve(output);
+            })
+        })
+    })
 }
 
 function getPageDetailsUsingUrnId(urnId) {
 
     // Getting the final page to get the data
     //console.log('URN-ID:', urnId);
-    let url = 'https://www.zaubacorp.com/company/-/'+ urnId;
+    let url = constants.LINKS.COMPANY_DATA_URL + urnId;
     let options = {
         uri: url,
         transform: function (html) {
@@ -203,23 +167,23 @@ function getPageDetailsUsingUrnId(urnId) {
             let tableName = $(this).text().replace(/\s+/g, '_').toLowerCase();
             // Getting the Json data from different tables/divs with in the web page
             switch ( tableName ){
-                case 'company_details':
+                case constants.KEYWORDS.COMPANY_DETAILS:
                     data = $(this).next().html();
                     tableDataArray.push( getJsonFromTable( data, $ ) );
                     break;
-                case 'share_capital_&_number_of_employees':
+                case constants.KEYWORDS.SHARE_CAPITAL:
                     data = $(this).next().html();
                     tableDataArray.push( getJsonFromTable( data, $ ) );
                     break;
-                case '_listing_and_annual_compliance_details':
+                case constants.KEYWORDS.ANNUAL_COMPLIANCE_DETAILS:
                     data = $(this).next().html();
                     tableDataArray.push( getJsonFromTable( data, $ ) );
                     break;
-                case 'contact_details':
+                case constants.KEYWORDS.CONTACT_DETAILS:
                     data = $(this).next().html();
                     tableDataArray.push( getJsonFromDiv( data, $ ) );
                     break;
-                case '_director_details':
+                case constants.KEYWORDS.DIRECTOR_DETAILS:
                     data = $(this).next().html();
                     tableDataArray.push( getDirectorDetails( data, $ ) );
                     break;
@@ -258,10 +222,10 @@ function getJsonFromTable( data, $ ){
 
     // Getting data from web page given in form of table
     let object = {};
-    $( data ).children("tr").map(function() {
+    $( data ).children("tr").map(() => {
         let itArr = [];
         x = $(this).children();
-        x.each(function( inc ) {
+        x.each(( inc ) => {
             if( $(this).text() ){
                 let tableValue = $(this).text().replace(/\s+/g, '_').toLowerCase();
                 if ( inc === 0 ) {
@@ -281,7 +245,7 @@ function getJsonFromDiv( data, $ ){
 
     // Getting data from web page given in form of div
     let object = {};
-    $( data ).map(function() {
+    $( data ).map(() => {
         x = $(this).children();
         x.each(function( inc ) {
             let contactDetailDataArray = $(this).text().split(':');
@@ -301,40 +265,12 @@ function getJsonFromDiv( data, $ ){
     return object;
 }
 
-function createTableByStateName( stateName ){
-
-    // Defining the schema of table
-    const stateTableName = sequelize.define(stateName, {
-        cin 								: { type: Sequelize.STRING(1234) , unique: true },
-        //cin 								: Sequelize.STRING(1234),
-        company_name						: Sequelize.STRING(1234),
-        company_status						: Sequelize.STRING(1234),
-        roc									: Sequelize.STRING(1234),
-        registration_number					: Sequelize.STRING(1234),
-        company_category					: Sequelize.STRING(1234),
-        company_sub_category				: Sequelize.STRING(1234),
-        class_of_company					: Sequelize.STRING(1234),
-        date_of_incorporation				: Sequelize.STRING(1234),
-        age_of_company						: Sequelize.STRING(1234),
-        activity							: Sequelize.STRING(1234),
-        number_of_members					: Sequelize.STRING(1234),
-        authorised_capital					: Sequelize.STRING(1234),
-        paid_up_capital						: Sequelize.STRING(1234),
-        number_of_employees					: Sequelize.STRING(1234),
-        listing_status						: Sequelize.STRING(1234),
-        date_of_last_annual_general_meeting	: Sequelize.STRING(1234),
-        date_of_latest_balance_sheet		: Sequelize.STRING(1234),
-        _email_id							: Sequelize.STRING(1234),
-        address								: Sequelize.STRING(1234),
-        directors							: Sequelize.STRING(1234)
-    });
-    return stateTableName;
-}
 
 //================= Helper Functions End======================================
 
-app.listen('8082');
+app.set('PORT_NAME', constants.PORT);
+app.listen(app.get('PORT_NAME'));
 
-console.log('Magic happens on port 8082');
+console.log('Magic happens on port', app.get('PORT_NAME'));
 
 exports = module.exports = app;
