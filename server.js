@@ -172,11 +172,11 @@ function getPageDetailsUsingUrnId(urnId) {
                     break;
                 case constants.KEYWORDS.SHARE_CAPITAL:
                     data = $(this).next().html();
-                    tableDataArray.push( getJsonFromDiv( data, $ ) );
+                    tableDataArray.push( getJsonFromTable( data, $ ) );
                     break;
                 case constants.KEYWORDS.ANNUAL_COMPLIANCE_DETAILS:
                     data = $(this).next().html();
-                    tableDataArray.push( getJsonFromDiv( data, $ ) );
+                    tableDataArray.push( getJsonFromTable( data, $ ) );
                     break;
                 case constants.KEYWORDS.CONTACT_DETAILS:
                     data = $(this).next().html();
